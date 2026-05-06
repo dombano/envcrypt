@@ -1,65 +1,61 @@
-import * as fs from 'fs';
-import * as path from 'path';
+import fs from 'fs/promises';
+import path from 'path';
 import { encrypt, decrypt } from './crypto';
-import { readEnvFile, writeEnvFile, parseEnv, serialiseEnv } from './env';
+import { parseEnv, serialiseEnv } from './env';
 
-export interface ShareOptions {
-  inputPath: string;
-  outputPath: string;
-  publicKeyPath: string;
+export interface RecipientKey {
+  name: string;
+  publicKey: string;
 }
 
-export interface ReceiveOptions {
-  inputPath: string;
-  outputPath: string;
-  privateKeyPath: string;
+export interface EncryptedBundle {
+  version: number;
+  recipients: Array<{
+    name: string;
+    payload: string;
+  }>;
 }
 
-/**
- * Encrypts a .env file using a recipient's public key and writes
- * the encrypted payload to the output path as a JSON file.
- */
-export async function shareEnvFile(options: ShareOptions): Promise<void> {
-  const { inputPath, outputPath, publicKeyPath } = options;
+export async function encryptEnvForRecipients(
+  envVars: Record<string, string>,
+  recipients: RecipientKey[],
+  outputPath: string
+): Promise<void> {
+  const plaintext = serialiseEnv(envVars);
 
-  const publicKey = fs.readFileSync(path.resolve(publicKeyPath), 'utf-8').trim();
-  const envContent = readEnvFile(path.resolve(inputPath));
-  const encrypted = encrypt(envContent, publicKey);
+  const bundle: EncryptedBundle = {
+    version: 1,
+    recipients: await Promise.all(
+      recipients.map(async (r) => ({
+        name: r.name,
+        payload: await encrypt(plaintext, r.publicKey),
+      }))
+    ),
+  };
 
-  const payload = JSON.stringify({ encrypted }, null, 2);
-  fs.writeFileSync(path.resolve(outputPath), payload, 'utf-8');
+  await fs.mkdir(path.dirname(outputPath), { recursive: true });
+  await fs.writeFile(outputPath, JSON.stringify(bundle, null, 2), 'utf-8');
 }
 
-/**
- * Decrypts an encrypted .env JSON file using the recipient's private key
- * and writes the resulting .env file to the output path.
- */
-export async function receiveEnvFile(options: ReceiveOptions): Promise<void> {
-  const { inputPath, outputPath, privateKeyPath } = options;
+export async function decryptEnvBundle(
+  bundlePath: string,
+  recipientName: string,
+  privateKey: string
+): Promise<Record<string, string>> {
+  const raw = await fs.readFile(bundlePath, 'utf-8');
+  const bundle: EncryptedBundle = JSON.parse(raw);
 
-  const privateKey = fs.readFileSync(path.resolve(privateKeyPath), 'utf-8').trim();
-  const raw = fs.readFileSync(path.resolve(inputPath), 'utf-8');
-  const payload = JSON.parse(raw) as { encrypted: string };
-
-  if (!payload.encrypted) {
-    throw new Error('Invalid encrypted env file: missing "encrypted" field.');
+  const entry = bundle.recipients.find((r) => r.name === recipientName);
+  if (!entry) {
+    throw new Error(`Recipient "${recipientName}" not found in encrypted bundle.`);
   }
 
-  const decrypted = decrypt(payload.encrypted, privateKey);
-  writeEnvFile(path.resolve(outputPath), decrypted);
+  const plaintext = await decrypt(entry.payload, privateKey);
+  return parseEnv(plaintext);
 }
 
-/**
- * Returns the list of variable keys present in an encrypted env file
- * without fully decrypting values — useful for previewing shared files.
- * Requires the private key to decrypt.
- */
-export async function listEnvKeys(encryptedPath: string, privateKeyPath: string): Promise<string[]> {
-  const privateKey = fs.readFileSync(path.resolve(privateKeyPath), 'utf-8').trim();
-  const raw = fs.readFileSync(path.resolve(encryptedPath), 'utf-8');
-  const payload = JSON.parse(raw) as { encrypted: string };
-
-  const decrypted = decrypt(payload.encrypted, privateKey);
-  const parsed = parseEnv(decrypted);
-  return Object.keys(parsed);
+export async function listBundleRecipients(bundlePath: string): Promise<string[]> {
+  const raw = await fs.readFile(bundlePath, 'utf-8');
+  const bundle: EncryptedBundle = JSON.parse(raw);
+  return bundle.recipients.map((r) => r.name);
 }
