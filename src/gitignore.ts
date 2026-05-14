@@ -54,3 +54,40 @@ export function isGitignored(entry: string, dir: string = process.cwd()): boolea
   const lines = content.split('\n').map((l) => l.trim());
   return lines.includes(entry);
 }
+
+/**
+ * Removes all envcrypt-managed entries (and the '# envcrypt' header block)
+ * from the .gitignore file in the given directory.
+ *
+ * @param dir - The directory containing the .gitignore file.
+ * @returns The list of entries that were removed.
+ */
+export function removeGitignoreEntries(
+  dir: string = process.cwd(),
+  entries: string[] = ENVCRYPT_GITIGNORE_ENTRIES
+): string[] {
+  const gitignorePath = path.join(dir, GITIGNORE_FILE);
+  const existing = readGitignore(dir);
+  if (!existing) {
+    return [];
+  }
+
+  const removed: string[] = [];
+  const filteredLines = existing.split('\n').filter((line) => {
+    const trimmed = line.trim();
+    if (trimmed === '# envcrypt') {
+      return false;
+    }
+    if (entries.includes(trimmed)) {
+      removed.push(trimmed);
+      return false;
+    }
+    return true;
+  });
+
+  if (removed.length > 0) {
+    fs.writeFileSync(gitignorePath, filteredLines.join('\n'), 'utf8');
+  }
+
+  return removed;
+}
