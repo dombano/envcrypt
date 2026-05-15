@@ -56,6 +56,14 @@ describe('profile cli', () => {
     expect(config.profiles['dev']).toBeUndefined();
   });
 
+  test('profile remove active profile clears active', () => {
+    const program = makeProgram();
+    program.parse(['profile', 'add', 'dev'], { from: 'user' });
+    program.parse(['profile', 'remove', 'dev'], { from: 'user' });
+    const config = loadProfiles(tmpDir);
+    expect(config.active).toBeUndefined();
+  });
+
   test('profile list prints profiles', () => {
     const consoleSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
     const program = makeProgram();
