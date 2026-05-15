@@ -56,6 +56,23 @@ export function isGitignored(entry: string, dir: string = process.cwd()): boolea
 }
 
 /**
+ * Returns true if all envcrypt-managed entries are present in the .gitignore
+ * file in the given directory.
+ *
+ * @param dir - The directory containing the .gitignore file.
+ * @param entries - The entries to check for (defaults to ENVCRYPT_GITIGNORE_ENTRIES).
+ * @returns True if every entry is already present in .gitignore.
+ */
+export function hasAllGitignoreEntries(
+  dir: string = process.cwd(),
+  entries: string[] = ENVCRYPT_GITIGNORE_ENTRIES
+): boolean {
+  const content = readGitignore(dir);
+  const lines = content.split('\n').map((l) => l.trim());
+  return entries.every((entry) => lines.includes(entry));
+}
+
+/**
  * Removes all envcrypt-managed entries (and the '# envcrypt' header block)
  * from the .gitignore file in the given directory.
  *
